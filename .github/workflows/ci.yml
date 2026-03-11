@@ -36,6 +36,7 @@ jobs:
         run: |
           # Use buildah to handle the multi-stage build with skip-unused-stages
           buildah build \
+            -v "$PWD:/run/src" --security-opt=label=disable \
             --skip-unused-stages=false \
             --platform linux/amd64 \
             --tag "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:latest" \
