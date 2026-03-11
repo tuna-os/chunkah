@@ -16,7 +16,7 @@ env:
   IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
 
 jobs:
-  build:
+  build-amd64:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -34,16 +34,80 @@ jobs:
 
       - name: Build chunkah image
         run: |
-          # Use buildah to handle the multi-stage build with skip-unused-stages
           buildah build \
             -v "$PWD:/run/src" --security-opt=label=disable \
             --skip-unused-stages=false \
             --platform linux/amd64 \
-            --tag "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:latest" \
-            --tag "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:$(git rev-parse --short HEAD)" \
+            --tag "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:latest-amd64" \
+            --tag "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:$(git rev-parse --short HEAD)-amd64" \
             .
 
       - name: Push chunkah image
         run: |
-          podman push "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
-          podman push "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:$(git rev-parse --short HEAD)"
+          podman push "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:latest-amd64"
+          podman push "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:$(git rev-parse --short HEAD)-amd64"
+
+  build-arm64:
+    runs-on: ubuntu24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build chunkah image
+        run: |
+          buildah build \
+            -v "$PWD:/run/src" --security-opt=label=disable \
+            --skip-unused-stages=false \
+            --platform linux/arm64 \
+            --tag "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:latest-arm64" \
+            --tag "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:$(git rev-parse --short HEAD)-arm64" \
+            .
+
+      - name: Push chunkah image
+        run: |
+          podman push "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:latest-arm64"
+          podman push "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:$(git rev-parse --short HEAD)-arm64"
+
+  manifest:
+    runs-on: ubuntu-latest
+    needs: [build-amd64, build-arm64]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push multi-arch manifest (latest)
+        run: |
+          podman manifest create "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:latest" \
+            "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:latest-amd64" \
+            "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:latest-arm64"
+          podman manifest push "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:latest" \
+            "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+
+      - name: Create and push multi-arch manifest (commit)
+        run: |
+          COMMIT_SHA=$(git rev-parse --short HEAD)
+          podman manifest create "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${COMMIT_SHA}" \
+            "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${COMMIT_SHA}-amd64" \
+            "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${COMMIT_SHA}-arm64"
+          podman manifest push "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${COMMIT_SHA}" \
+            "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${COMMIT_SHA}"
